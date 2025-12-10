@@ -167,9 +167,8 @@ async function loadVideoLibrary() {
 function renderVideoList() {
     if (state.videos.length === 0) {
         elements.videoList.innerHTML = `
-            <div class="video-list-empty">
-                <p>No videos yet</p>
-                <p>Upload a video to get started</p>
+            <div class="empty-state">
+                <p>No videos uploaded</p>
             </div>
         `;
         return;
@@ -178,13 +177,13 @@ function renderVideoList() {
     elements.videoList.innerHTML = state.videos.map(video => `
         <div class="video-card ${state.currentVideo?.id === video.id ? 'active' : ''}" 
              data-video-id="${video.id}">
-            <img class="video-thumbnail" 
+            <img class="video-thumb" 
                  src="${api.getThumbnailUrl(video.id)}" 
                  alt="${video.name}"
                  onerror="this.style.display='none'">
-            <div class="video-card-info">
+            <div class="video-info">
                 <div class="video-card-title">${video.name}</div>
-                <div class="video-card-meta">
+                <div class="video-meta">
                     <span>${formatDuration(video.duration)}</span>
                     <span class="status-badge status-${video.status}">${video.status}</span>
                 </div>
@@ -225,10 +224,9 @@ function selectVideo(video) {
 
     if (!isProcessed) {
         elements.chatMessages.innerHTML = `
-            <div class="chat-welcome">
-                <div class="welcome-icon">⏳</div>
-                <h4>Video Not Processed</h4>
-                <p>Click "Process Video" to analyze this video and enable Q&A</p>
+            <div class="welcome">
+                <h3>Video Not Processed</h3>
+                <p>Click "Process" to analyze this video and enable Q&A</p>
             </div>
         `;
     } else {
@@ -444,12 +442,10 @@ function hideProcessingOverlay() {
 // ===== Chat Functions =====
 function clearChat() {
     elements.chatMessages.innerHTML = `
-        <div class="chat-welcome">
-            <div class="welcome-icon">✨</div>
-            <h4>Ready to Answer Questions</h4>
+        <div class="welcome">
+            <h3>Ready to Answer Questions</h3>
             <p>Ask me anything about this video!</p>
-            <div class="example-questions">
-                <p>Try asking:</p>
+            <div class="suggestions">
                 <button class="example-btn" data-question="What happens in this video?">What happens in this video?</button>
                 <button class="example-btn" data-question="Who appears in the video?">Who appears in the video?</button>
                 <button class="example-btn" data-question="Describe the key moments">Describe the key moments</button>
@@ -468,7 +464,7 @@ function clearChat() {
 
 function addMessage(content, role, sources = []) {
     // Remove welcome message if present
-    const welcome = elements.chatMessages.querySelector('.chat-welcome');
+    const welcome = elements.chatMessages.querySelector('.welcome');
     if (welcome) welcome.remove();
 
     const messageDiv = document.createElement('div');
@@ -549,10 +545,12 @@ async function sendMessage() {
 
 // ===== Event Listeners =====
 function setupEventListeners() {
-    // Sidebar toggle
-    elements.toggleSidebar.addEventListener('click', () => {
-        elements.sidebar.classList.toggle('collapsed');
-    });
+    // Sidebar toggle (removed - no toggle button in new design)
+    if (elements.toggleSidebar) {
+        elements.toggleSidebar.addEventListener('click', () => {
+            elements.sidebar.classList.toggle('collapsed');
+        });
+    }
 
     // Refresh library
     elements.refreshLibrary.addEventListener('click', loadVideoLibrary);

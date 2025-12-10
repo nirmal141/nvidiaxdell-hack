@@ -1,0 +1,47 @@
+{
+  "087fadfd": {
+    "id": "087fadfd",
+    "filename": "087fadfd_street_night.mp4",
+    "path": "/home/dell/Documents/hackathon/nirmal-hackathon/data/videos/087fadfd_street_night.mp4",
+    "status": "processing",
+    "processed_frames": 0,
+    "name": "street_night",
+    "duration": 19.333333333333332,
+    "fps": 24.0,
+    "width": 1920,
+    "height": 1080,
+    "total_frames": 464,
+    "thumbnail": "/home/dell/Documents/hackathon/nirmal-hackathon/data/videos/087fadfd_thumb.jpg",
+    "sample_frames": 20
+  },
+  "8cff63dc": {
+    "id": "8cff63dc",
+    "filename": "8cff63dc_street_night.mp4",
+    "path": "/home/dell/Documents/hackathon/nirmal-hackathon/data/videos/8cff63dc_street_night.mp4",
+    "status": "completed",
+    "processed_frames": 20,
+    "name": "street_night",
+    "duration": 19.333333333333332,
+    "fps": 24.0,
+    "width": 1920,
+    "height": 1080,
+    "total_frames": 464,
+    "thumbnail": "/home/dell/Documents/hackathon/nirmal-hackathon/data/videos/8cff63dc_thumb.jpg",
+    "sample_frames": 20
+  },
+  "5c72e321": {
+    "id": "5c72e321",
+    "filename": "5c72e321_people_walking.mp4",
+    "path": "/home/dell/Documents/hackathon/nirmal-hackathon/data/videos/5c72e321_people_walking.mp4",
+    "status": "completed",
+    "processed_frames": 14,
+    "name": "people_walking",
+    "duration": 13.64,
+    "fps": 25.0,
+    "width": 1920,
+    "height": 1080,
+    "total_frames": 341,
+    "thumbnail": "/home/dell/Documents/hackathon/nirmal-hackathon/data/videos/5c72e321_thumb.jpg",
+    "sample_frames": 14
+  }
+}

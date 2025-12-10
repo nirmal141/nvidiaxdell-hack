@@ -3,22 +3,31 @@ import os
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 @dataclass
 class NIMConfig:
-    """NVIDIA NIM endpoint configuration."""
-    vlm_url: str = "http://localhost:8000/v1"
-    vlm_model: str = "nvidia/vila"
+    """NVIDIA NIM Cloud API configuration."""
+    # API Key from environment
+    api_key: str = field(default_factory=lambda: os.getenv("NVIDIA_API_KEY", ""))
     
-    embedding_url: str = "http://localhost:8001/v1"
-    embedding_model: str = "nvidia/nv-embed-qa"
+    # NVIDIA Cloud API endpoints - using correct model names
+    vlm_url: str = "https://integrate.api.nvidia.com/v1"
+    vlm_model: str = "meta/llama-3.2-90b-vision-instruct"  # Vision-language model
     
-    llm_url: str = "http://localhost:8002/v1"
-    llm_model: str = "meta/llama"
+    embedding_url: str = "https://integrate.api.nvidia.com/v1"
+    embedding_model: str = "nvidia/nv-embedqa-e5-v5"  # Embedding model
+    
+    llm_url: str = "https://integrate.api.nvidia.com/v1"
+    llm_model: str = "meta/llama-3.1-70b-instruct"  # LLM for answers
     
     timeout: int = 120
     max_retries: int = 3
+
 
 
 @dataclass

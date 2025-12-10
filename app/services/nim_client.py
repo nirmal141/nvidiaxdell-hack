@@ -40,15 +40,22 @@ class LLMResponse:
 class BaseNIMClient:
     """Base client for NVIDIA NIM endpoints."""
     
-    def __init__(self, base_url: str, model: str, timeout: int = 120):
+    def __init__(self, base_url: str, model: str, api_key: str = "", timeout: int = 120):
         self.base_url = base_url.rstrip('/')
         self.model = model
         self.timeout = timeout
+        self.api_key = api_key
         self.session = requests.Session()
-        self.session.headers.update({
+        
+        headers = {
             "Content-Type": "application/json",
             "Accept": "application/json"
-        })
+        }
+        # Add API key if provided (for NVIDIA Cloud API)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        
+        self.session.headers.update(headers)
     
     def _make_request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Make a POST request to NIM endpoint."""
@@ -70,8 +77,8 @@ class BaseNIMClient:
 class VLMClient(BaseNIMClient):
     """Client for VILA VLM (Vision Language Model)."""
     
-    def __init__(self, base_url: str, model: str = "nvidia/vila", timeout: int = 120):
-        super().__init__(base_url, model, timeout)
+    def __init__(self, base_url: str, model: str = "nvidia/vila", api_key: str = "", timeout: int = 120):
+        super().__init__(base_url, model, api_key, timeout)
     
     def _encode_image(self, image: np.ndarray) -> str:
         """Convert numpy image to base64 string."""
@@ -137,8 +144,8 @@ class VLMClient(BaseNIMClient):
 class EmbeddingClient(BaseNIMClient):
     """Client for NV-Embed-QA embedding model."""
     
-    def __init__(self, base_url: str, model: str = "nvidia/nv-embed-qa", timeout: int = 60):
-        super().__init__(base_url, model, timeout)
+    def __init__(self, base_url: str, model: str = "nvidia/nv-embed-qa", api_key: str = "", timeout: int = 60):
+        super().__init__(base_url, model, api_key, timeout)
     
     def embed_text(self, text: str) -> EmbeddingResponse:
         """
@@ -223,8 +230,8 @@ class EmbeddingClient(BaseNIMClient):
 class LLMClient(BaseNIMClient):
     """Client for Llama LLM."""
     
-    def __init__(self, base_url: str, model: str = "meta/llama", timeout: int = 120):
-        super().__init__(base_url, model, timeout)
+    def __init__(self, base_url: str, model: str = "meta/llama", api_key: str = "", timeout: int = 120):
+        super().__init__(base_url, model, api_key, timeout)
     
     def generate_answer(
         self,
@@ -298,6 +305,7 @@ class NIMClientFactory:
         return VLMClient(
             base_url=config.nim.vlm_url,
             model=config.nim.vlm_model,
+            api_key=config.nim.api_key,
             timeout=config.nim.timeout
         )
     
@@ -306,6 +314,7 @@ class NIMClientFactory:
         return EmbeddingClient(
             base_url=config.nim.embedding_url,
             model=config.nim.embedding_model,
+            api_key=config.nim.api_key,
             timeout=config.nim.timeout
         )
     
@@ -314,5 +323,6 @@ class NIMClientFactory:
         return LLMClient(
             base_url=config.nim.llm_url,
             model=config.nim.llm_model,
+            api_key=config.nim.api_key,
             timeout=config.nim.timeout
         )
