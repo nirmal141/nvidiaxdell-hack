@@ -49,7 +49,7 @@ class BaseNIMClient:
         
         headers = {
             "Content-Type": "application/json",
-            "Accept": "application/json"
+            "Accept": "application/json" 
         }
         # Add API key if provided (for NVIDIA Cloud API)
         if api_key:

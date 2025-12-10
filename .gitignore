@@ -46,3 +46,11 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+# Data files (videos, database)
+data/
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.webm
