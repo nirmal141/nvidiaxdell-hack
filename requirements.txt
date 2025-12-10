@@ -1,0 +1,23 @@
+# Core
+requests
+fastapi
+uvicorn[standard]
+python-multipart
+websockets
+
+# AI/ML
+torch
+transformers
+accelerate
+pillow
+numpy
+opencv-python
+
+# Vector Database
+pymilvus
+
+# File handling
+aiofiles
+
+# Development
+pydantic
