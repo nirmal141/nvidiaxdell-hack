@@ -284,7 +284,17 @@ class VideoLibrary:
     
     def get_video(self, video_id: str) -> Optional[Dict[str, Any]]:
         """Get video info by ID."""
-        return self.videos.get(video_id)
+        video = self.videos.get(video_id)
+        if video:
+            # Fix path to be relative to current videos_dir (handles Docker mount points)
+            video = video.copy()
+            filename = video.get("filename", "")
+            video["path"] = str(self.videos_dir / filename)
+            # Also fix thumbnail path if present
+            if video.get("thumbnail"):
+                thumb_filename = Path(video["thumbnail"]).name
+                video["thumbnail"] = str(self.videos_dir / thumb_filename)
+        return video
     
     def update_video(self, video_id: str, updates: Dict[str, Any]):
         """Update video metadata."""

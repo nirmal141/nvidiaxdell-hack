@@ -33,18 +33,20 @@ class NIMConfig:
 @dataclass
 class VideoConfig:
     """Video processing configuration."""
-    frame_sample_interval: float = 1.0  # Extract 1 frame per second
+    frame_sample_interval: float = 3.0  # Extract 1 frame every 3 seconds (faster processing)
     max_frames_per_batch: int = 10
     supported_formats: tuple = (".mp4", ".avi", ".mkv", ".mov", ".webm")
     thumbnail_size: tuple = (320, 180)
+    use_local_vlm: bool = True  # Use local GPU VLM (LLaVA) instead of cloud API
+    use_local_embedding: bool = True  # Use local GPU embeddings instead of cloud API
 
 
 @dataclass
 class MilvusConfig:
     """Milvus Lite vector database configuration."""
     db_path: str = "./data/milvus/video_qa.db"
-    collection_name: str = "video_descriptions"
-    embedding_dim: int = 1024  # NV-Embed-QA dimension
+    collection_name: str = "video_descriptions_local"  # New collection for local embeddings
+    embedding_dim: int = 384  # sentence-transformers/all-MiniLM-L6-v2 dimension
     index_type: str = "FLAT"
     metric_type: str = "COSINE"
     top_k: int = 5

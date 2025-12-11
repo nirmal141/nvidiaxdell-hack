@@ -155,6 +155,55 @@ class VideoQAService:
             if batch_descriptions:
                 self.vector_store.insert_descriptions(video_id, batch_descriptions)
             
+            # === AUDIO TRANSCRIPTION ===
+            try:
+                from .audio_transcriber import get_audio_transcriber, WHISPER_AVAILABLE
+                
+                if WHISPER_AVAILABLE:
+                    if progress_callback:
+                        progress = ProcessingProgress(
+                            video_id=video_id,
+                            status=ProcessingStatus.PROCESSING,
+                            current_frame=processed_count,
+                            total_frames=total_frames,
+                            message="Transcribing audio..."
+                        )
+                        progress_callback(progress)
+                    
+                    transcriber = get_audio_transcriber()
+                    segments = transcriber.transcribe_segments(video_path, segment_duration=10.0)
+                    
+                    # Store transcription segments
+                    audio_descriptions = []
+                    for seg in segments:
+                        if not seg.text.strip():
+                            continue
+                        
+                        # Prefix with [AUDIO] for clarity
+                        description = f"[AUDIO] {seg.text}"
+                        
+                        try:
+                            embed_response = self.embedding.embed_text(description)
+                            audio_descriptions.append({
+                                "timestamp": seg.start,
+                                "description": description,
+                                "embedding": embed_response.embedding,
+                                "source_type": "audio"
+                            })
+                        except NIMClientError as e:
+                            logger.warning(f"Error embedding audio segment: {e}")
+                            continue
+                    
+                    if audio_descriptions:
+                        self.vector_store.insert_descriptions(video_id, audio_descriptions)
+                        logger.info(f"Added {len(audio_descriptions)} audio segments for {video_id}")
+                    
+                    await asyncio.sleep(0)
+            except ImportError:
+                logger.debug("Audio transcription not available")
+            except Exception as e:
+                logger.warning(f"Audio transcription failed: {e}")
+            
             # Update library status
             self.library.update_video(video_id, {
                 "status": "completed",
@@ -305,3 +354,122 @@ class VideoQAService:
         minutes = int(seconds // 60)
         secs = int(seconds % 60)
         return f"{minutes:02d}:{secs:02d}"
+    
+    def global_search(
+        self,
+        query: str,
+        top_k: int = 20,
+        generate_answer: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Search across ALL videos in the database.
+        
+        Args:
+            query: Search query
+            top_k: Number of results to return
+            generate_answer: Whether to generate an AI summary
+            
+        Returns:
+            Dict with results and optional AI-generated answer
+        """
+        # Embed the query
+        try:
+            query_embedding = self.embedding.embed_query(query).embedding
+        except NIMClientError as e:
+            logger.error(f"Error embedding query: {e}")
+            return {
+                "query": query,
+                "results": [],
+                "total_results": 0,
+                "answer": None,
+                "error": str(e)
+            }
+        
+        # Search across ALL videos (no video_id filter)
+        # Fetch more results for deduplication headroom
+        search_results = self.vector_store.search(
+            query_embedding=query_embedding,
+            video_id=None,  # Search all videos
+            top_k=top_k * 3  # Get extra for deduplication
+        )
+        
+        if not search_results:
+            return {
+                "query": query,
+                "results": [],
+                "total_results": 0,
+                "answer": "No matching content found in any processed videos."
+            }
+        
+        # === DEDUPLICATION ===
+        # Group results from same video within time window (30 seconds)
+        # Keep only the best match per time window
+        TIME_WINDOW = 30.0  # seconds
+        
+        deduplicated = []
+        seen_windows = {}  # (video_id, window_index) -> best result
+        
+        for r in search_results:
+            window_idx = int(r.timestamp // TIME_WINDOW)
+            key = (r.video_id, window_idx)
+            
+            if key not in seen_windows:
+                seen_windows[key] = r
+                deduplicated.append(r)
+            # Keep the one with higher score (earlier results have higher scores from vector search)
+        
+        # Limit to top_k after deduplication
+        deduplicated = deduplicated[:top_k]
+        
+        # Enrich results with video metadata
+        enriched_results = []
+        for r in deduplicated:
+            video_info = self.library.get_video(r.video_id)
+            video_name = video_info.get("name", r.video_id) if video_info else r.video_id
+            
+            enriched_results.append({
+                "video_id": r.video_id,
+                "video_name": video_name,
+                "timestamp": r.timestamp,
+                "description": r.description,
+                "relevance_score": r.score,
+                "thumbnail_url": f"/api/videos/{r.video_id}/thumbnail" if video_info else None
+            })
+        
+        # Generate AI summary if requested
+        answer = None
+        if generate_answer and enriched_results:
+            try:
+                # Format context with video sources
+                context_items = [
+                    {
+                        "timestamp": r["timestamp"],
+                        "description": f"[{r['video_name']}] {r['description']}"
+                    }
+                    for r in enriched_results[:10]  # Use top 10 for answer
+                ]
+                
+                # Custom system prompt for global search
+                system_prompt = """You are an AI assistant helping analyze surveillance/video footage.
+You are given descriptions from MULTIPLE videos at specific timestamps.
+Answer the user's query based on the provided context.
+Always cite which video and timestamp you're referring to.
+Format: "In [video_name] at [MM:SS], ..." """
+                
+                llm_response = self.llm.generate_answer(
+                    question=query,
+                    context=context_items,
+                    system_prompt=system_prompt
+                )
+                answer = llm_response.content
+            except NIMClientError as e:
+                logger.error(f"Error generating answer: {e}")
+                answer = None
+        
+        return {
+            "query": query,
+            "results": enriched_results,
+            "total_results": len(enriched_results),
+            "answer": answer
+        }
+

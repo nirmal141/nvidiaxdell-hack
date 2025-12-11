@@ -89,3 +89,72 @@ class VideoListResponse(BaseModel):
     """List of available videos."""
     videos: List[VideoInfo]
     total: int
+
+
+class GlobalSearchRequest(BaseModel):
+    """Request for global search across all videos."""
+    query: str = Field(..., min_length=1, max_length=1000)
+    top_k: int = Field(default=20, ge=1, le=100)
+
+
+class GlobalSearchResult(BaseModel):
+    """A single result from global search."""
+    video_id: str
+    video_name: str
+    timestamp: float
+    description: str
+    relevance_score: float
+    thumbnail_url: Optional[str] = None
+
+
+class GlobalSearchResponse(BaseModel):
+    """Response for global search."""
+    query: str
+    results: List[GlobalSearchResult]
+    total_results: int
+    answer: Optional[str] = None  # AI-generated summary of findings
+
+
+class DetectedObject(BaseModel):
+    """A single detected object."""
+    class_id: int
+    class_name: str
+    confidence: float
+    bbox: List[float]  # [x1, y1, x2, y2] normalized 0-1
+    bbox_pixels: List[int]  # [x1, y1, x2, y2] in pixels
+
+
+class DetectionResponse(BaseModel):
+    """Response for object detection."""
+    video_id: str
+    timestamp: float
+    detections: List[DetectedObject]
+    frame_width: int
+    frame_height: int
+    inference_time_ms: float
+    person_count: int = 0
+    vehicle_count: int = 0
+
+
+class DetectionRequest(BaseModel):
+    """Request for object detection."""
+    timestamp: float = 0.0
+    confidence_threshold: float = 0.15  # Lower threshold for surveillance footage
+    priority_only: bool = False  # Only security-relevant classes
+
+
+class SegmentRequest(BaseModel):
+    """Request for SAM2 segmentation."""
+    timestamp: float = 0.0
+    x: float  # Click X coordinate (0-1 normalized)
+    y: float  # Click Y coordinate (0-1 normalized)
+
+
+class SegmentResponse(BaseModel):
+    """Response for SAM2 segmentation."""
+    video_id: str
+    timestamp: float
+    polygon: List[List[float]]  # Polygon points for rendering
+    area: float  # Mask area as percentage
+    confidence: float
+

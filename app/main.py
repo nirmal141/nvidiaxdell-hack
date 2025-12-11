@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title="Video Q&A Application",
+    title="Sentio",
     description="Ask questions about video content using AI",
     version="1.0.0"
 )

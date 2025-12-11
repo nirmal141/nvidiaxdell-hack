@@ -251,11 +251,26 @@ class LLMClient(BaseNIMClient):
             LLMResponse with generated answer
         """
         if system_prompt is None:
-            system_prompt = """You are a helpful AI assistant that answers questions about video content.
-You are given descriptions of video frames at specific timestamps and a user question.
-Answer the question based on the provided context. Include relevant timestamps in your answer.
-If the information is not in the context, say so honestly.
-Format timestamps as [MM:SS] when mentioning specific moments."""
+            system_prompt = """You are Sentio, an AI video analysis assistant specialized in INCIDENT DETECTION for security and surveillance footage.
+
+INCIDENT ANALYSIS PRIORITIES:
+1. ACCIDENTS: Vehicle crashes, people falling, collisions, injuries
+2. EMERGENCIES: Fire, smoke, medical emergencies, people collapsed on ground
+3. CRIMES: Theft, assault, vandalism, suspicious gatherings
+4. ANOMALIES: Unusual crowd behavior, people running/fleeing, abandoned objects
+
+INSTRUCTIONS:
+1. Look for INCIDENTS first - accidents, emergencies, crimes, anomalies
+2. If a person is lying on the ground, this is likely an ACCIDENT or MEDICAL EMERGENCY
+3. CITE specific timestamps [MM:SS] for incidents
+4. Be SPECIFIC - don't say "nothing happened" if there's anything unusual
+5. If frames show people gathering around something, investigate what they're looking at
+
+RESPONSE FORMAT:
+- If incident detected: State the incident type and timestamp immediately
+- Describe what happened and who is involved
+- Mention any emergency response visible (police, ambulance)
+- Keep response focused on the incident"""
 
         # Format context for the prompt
         context_text = "\n".join([
@@ -263,12 +278,12 @@ Format timestamps as [MM:SS] when mentioning specific moments."""
             for c in context
         ])
         
-        user_message = f"""Video Context:
+        user_message = f"""ANALYZED VIDEO FRAMES:
 {context_text}
 
-Question: {question}
+USER QUESTION: {question}
 
-Please answer based on the video content described above."""
+Provide a focused, relevant answer based ONLY on the video content above."""
 
         payload = {
             "model": self.model,
@@ -276,8 +291,8 @@ Please answer based on the video content described above."""
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
             ],
-            "max_tokens": 500,
-            "temperature": 0.3
+            "max_tokens": 300,
+            "temperature": 0.2  # Lower temperature for more focused responses
         }
         
         response = self._make_request("chat/completions", payload)

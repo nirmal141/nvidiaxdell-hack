@@ -12,7 +12,10 @@ from fastapi.responses import JSONResponse, FileResponse
 
 from ..models.schemas import (
     VideoInfo, VideoUploadResponse, VideoListResponse,
-    ProcessingProgress, ProcessingStatus, QuestionRequest, AnswerResponse
+    ProcessingProgress, ProcessingStatus, QuestionRequest, AnswerResponse,
+    GlobalSearchRequest, GlobalSearchResponse, GlobalSearchResult,
+    DetectionRequest, DetectionResponse, DetectedObject,
+    SegmentRequest, SegmentResponse
 )
 from ..config import config
 from ..services.video_processor import VideoProcessor, VideoLibrary
@@ -28,9 +31,6 @@ router = APIRouter()
 _qa_service: Optional[VideoQAService] = None
 _video_library: Optional[VideoLibrary] = None
 
-# WebSocket connections for progress updates
-active_connections: Dict[str, WebSocket] = {}
-
 
 def get_video_library() -> VideoLibrary:
     """Get or create video library instance."""
@@ -44,8 +44,23 @@ def get_qa_service() -> VideoQAService:
     """Get or create QA service instance."""
     global _qa_service
     if _qa_service is None:
-        vlm_client = NIMClientFactory.create_vlm_client(config)
-        embedding_client = NIMClientFactory.create_embedding_client(config)
+        # Choose VLM client based on config
+        if config.video.use_local_vlm:
+            from ..services.local_vlm import LocalVLMClient
+            vlm_client = LocalVLMClient()
+            logger.info("Using LOCAL GPU VLM (LLaVA)")
+        else:
+            vlm_client = NIMClientFactory.create_vlm_client(config)
+            logger.info("Using CLOUD VLM (NIM API)")
+        
+        # Choose embedding client based on config
+        if config.video.use_local_embedding:
+            from ..services.local_embedding import LocalEmbeddingClient
+            embedding_client = LocalEmbeddingClient()
+            logger.info("Using LOCAL GPU Embeddings (sentence-transformers)")
+        else:
+            embedding_client = NIMClientFactory.create_embedding_client(config)
+            logger.info("Using CLOUD Embeddings (NIM API)")
         llm_client = NIMClientFactory.create_llm_client(config)
         vector_store = VectorStore(
             db_path=config.milvus.db_path,
@@ -245,6 +260,24 @@ async def get_processing_status(video_id: str):
     return status
 
 
+@router.post("/api/videos/{video_id}/stop")
+async def stop_processing(video_id: str):
+    """Stop processing a video and reset its status."""
+    library = get_video_library()
+    video = library.get_video(video_id)
+    
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    # Reset status to pending (or failed if it was processing)
+    current_status = video.get("status", "pending")
+    if current_status == "processing":
+        library.update_video(video_id, {"status": "pending"})
+        logger.info(f"Stopped processing video {video_id}, reset to pending")
+    
+    return {"message": "Processing stopped", "video_id": video_id}
+
+
 @router.post("/api/videos/{video_id}/ask", response_model=AnswerResponse)
 async def ask_question(video_id: str, request: QuestionRequest):
     """Ask a question about a video."""
@@ -291,28 +324,213 @@ async def delete_video(video_id: str):
     return {"message": "Video deleted", "video_id": video_id}
 
 
+@router.post("/api/search", response_model=GlobalSearchResponse)
+async def global_search(request: GlobalSearchRequest):
+    """
+    Search across ALL videos in the database.
+    
+    Returns matching moments from any processed video.
+    """
+    qa_service = get_qa_service()
+    
+    result = qa_service.global_search(
+        query=request.query,
+        top_k=request.top_k,
+        generate_answer=True
+    )
+    
+    # Convert to response model
+    search_results = [
+        GlobalSearchResult(
+            video_id=r["video_id"],
+            video_name=r["video_name"],
+            timestamp=r["timestamp"],
+            description=r["description"],
+            relevance_score=r["relevance_score"],
+            thumbnail_url=r["thumbnail_url"]
+        )
+        for r in result["results"]
+    ]
+    
+    return GlobalSearchResponse(
+        query=result["query"],
+        results=search_results,
+        total_results=result["total_results"],
+        answer=result.get("answer")
+    )
+
+
 # WebSocket for real-time progress updates
+# Store multiple connections per video (in case of reconnects)
+active_connections: Dict[str, List[WebSocket]] = {}
+
 @router.websocket("/ws/progress/{video_id}")
 async def websocket_progress(websocket: WebSocket, video_id: str):
     """WebSocket endpoint for real-time processing progress."""
     await websocket.accept()
-    active_connections[video_id] = websocket
+    
+    # Add to active connections list for this video
+    if video_id not in active_connections:
+        active_connections[video_id] = []
+    active_connections[video_id].append(websocket)
     
     try:
         while True:
-            # Keep connection alive
-            await websocket.receive_text()
+            try:
+                # Use receive with timeout to detect disconnects faster
+                # Also handles ping/pong automatically
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                # Client can send "ping" to keep alive
+                if data == "ping":
+                    await websocket.send_text("pong")
+            except asyncio.TimeoutError:
+                # Send ping to check if client is alive
+                try:
+                    await websocket.send_text("ping")
+                except Exception:
+                    break
     except WebSocketDisconnect:
-        if video_id in active_connections:
-            del active_connections[video_id]
+        pass
+    except Exception as e:
+        logger.debug(f"WebSocket error for {video_id}: {e}")
+    finally:
+        # Remove from active connections
+        if video_id in active_connections and websocket in active_connections[video_id]:
+            active_connections[video_id].remove(websocket)
+            if not active_connections[video_id]:
+                del active_connections[video_id]
 
 
 async def broadcast_progress(video_id: str, progress: ProcessingProgress):
-    """Broadcast progress update to connected WebSocket clients."""
-    if video_id in active_connections:
+    """Broadcast progress update to all connected WebSocket clients for a video."""
+    if video_id not in active_connections:
+        return
+    
+    # Send to all connected clients
+    dead_connections = []
+    for ws in active_connections[video_id]:
         try:
-            await active_connections[video_id].send_json(progress.model_dump())
-        except Exception as e:
-            logger.warning(f"Error sending progress: {e}")
-            if video_id in active_connections:
-                del active_connections[video_id]
+            await ws.send_json(progress.model_dump())
+        except Exception:
+            dead_connections.append(ws)
+    
+    # Clean up dead connections
+    for ws in dead_connections:
+        if ws in active_connections[video_id]:
+            active_connections[video_id].remove(ws)
+    
+    if video_id in active_connections and not active_connections[video_id]:
+        del active_connections[video_id]
+
+
+# Object detection instance
+_object_detector = None
+
+def get_object_detector():
+    """Get or create object detector instance."""
+    global _object_detector
+    if _object_detector is None:
+        from ..services.object_detector import ObjectDetector
+        _object_detector = ObjectDetector()
+    return _object_detector
+
+
+@router.post("/api/videos/{video_id}/detect", response_model=DetectionResponse)
+async def detect_objects(video_id: str, request: DetectionRequest):
+    """
+    Detect objects in a video frame at a specific timestamp.
+    
+    Uses YOLOv8 to detect people, vehicles, and other objects.
+    """
+    library = get_video_library()
+    video_info = library.get_video(video_id)
+    
+    if not video_info:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    video_path = video_info.get("path")
+    if not video_path or not os.path.exists(video_path):
+        raise HTTPException(status_code=404, detail="Video file not found")
+    
+    # Get detector and run detection
+    detector = get_object_detector()
+    result = detector.detect_from_video(
+        video_path=video_path,
+        timestamp=request.timestamp,
+        confidence_threshold=request.confidence_threshold
+    )
+    
+    # Count people and vehicles
+    person_count = sum(1 for d in result.detections if d.class_name == "person")
+    vehicle_classes = {"car", "motorcycle", "bus", "truck", "bicycle"}
+    vehicle_count = sum(1 for d in result.detections if d.class_name in vehicle_classes)
+    
+    # Convert to response
+    detections = [
+        DetectedObject(
+            class_id=d.class_id,
+            class_name=d.class_name,
+            confidence=d.confidence,
+            bbox=d.bbox,
+            bbox_pixels=d.bbox_pixels
+        )
+        for d in result.detections
+    ]
+    
+    return DetectionResponse(
+        video_id=video_id,
+        timestamp=request.timestamp,
+        detections=detections,
+        frame_width=result.frame_width,
+        frame_height=result.frame_height,
+        inference_time_ms=result.inference_time_ms,
+        person_count=person_count,
+        vehicle_count=vehicle_count
+    )
+
+
+# SAM2 tracker instance
+_sam2_tracker = None
+
+def get_sam2_tracker():
+    """Get or create SAM2 tracker instance."""
+    global _sam2_tracker
+    if _sam2_tracker is None:
+        from ..services.sam2_tracker import SAM2Tracker
+        _sam2_tracker = SAM2Tracker()
+    return _sam2_tracker
+
+
+@router.post("/api/videos/{video_id}/segment", response_model=SegmentResponse)
+async def segment_object(video_id: str, request: SegmentRequest):
+    """
+    Segment an object at the clicked point using SAM2.
+    
+    Click on any object to get its segmentation mask.
+    """
+    library = get_video_library()
+    video_info = library.get_video(video_id)
+    
+    if not video_info:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    video_path = video_info.get("path")
+    if not video_path or not os.path.exists(video_path):
+        raise HTTPException(status_code=404, detail="Video file not found")
+    
+    # Get tracker and run segmentation
+    tracker = get_sam2_tracker()
+    result = tracker.segment_from_video(
+        video_path=video_path,
+        timestamp=request.timestamp,
+        x=request.x,
+        y=request.y
+    )
+    
+    return SegmentResponse(
+        video_id=video_id,
+        timestamp=request.timestamp,
+        polygon=result.polygon,
+        area=result.area,
+        confidence=result.confidence
+    )

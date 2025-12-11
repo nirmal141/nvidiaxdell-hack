@@ -14,7 +14,8 @@ transformers
 accelerate
 pillow
 numpy
-opencv-python
+opencv-python-headless
+faster-whisper
 
 # Vector Database
 pymilvus
